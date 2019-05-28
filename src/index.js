@@ -19,17 +19,18 @@ const render = regl({
     uniform float seed;
 
     const float EXPOSURE = 1.0;
-    const int MAX_MARCHING_STEPS = 255;
+    const int MAX_MARCHING_STEPS = 100;
     const float MIN_DIST = 0.0;
     const float MAX_DIST = 100.0;
     const float EPSILON = 0.0001;
     const float WHITE = 200.0;
+    const vec3 LIGHT = vec3(-10.0, 10.0, 3.0);
 
     float jitter(float mixAmount, float offset) {
       float amount = 0.0;
       float scale = 1.0;
       offset += seed;
-      for (int power = 0; power < 5; power++) {
+      for (int power = 0; power < 3; power++) {
         amount += sin((offset * 1234.0 + mixAmount) * scale) / scale;
         scale *= 2.0;
       }
@@ -40,7 +41,12 @@ const render = regl({
     }
 
     vec3 warp(vec3 v, float scale) {
-      return v + scale * vec3(jitter(v.x, 0.0), jitter(v.y, 0.2), jitter(v.z, 1.0));
+      return v + scale * vec3(jitter(v.x, 0.0), jitter(v.y, 0.2), jitter(v.z, 0.5));
+    }
+
+    float smoothUnion(float d1, float d2, float k) {
+      float h = clamp(0.5 + 0.5*(d2-d1)/k, 0.0, 1.0);
+      return mix(d2, d1, h) - k*h*(1.0-h);
     }
 
     float sphereSDF(vec3 samplePoint, vec3 origin, float radius) {
@@ -48,11 +54,11 @@ const render = regl({
     }
 
     float sceneSDF(vec3 samplePoint) {
-      vec3 warped = warp(samplePoint, 4.0);
-      float d = sphereSDF(warped, vec3(0.5, 0.0, 0.0), 1.0);
-      d = min(d, sphereSDF(warped, vec3(-0.5, -0.4, 0.2), 0.5));
+      vec3 warped = warp(samplePoint, 3.0);
+      float d1 = sphereSDF(warped, vec3(0.5, 0.0, 0.0), 1.0);
+      float d2 = sphereSDF(warped, vec3(-0.5, -0.4, 0.2), 0.5);
 
-      return d;
+      return smoothUnion(d1, d2, 0.4);
     }
 
     vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord) {
@@ -76,20 +82,41 @@ const render = regl({
       return end;
     }
 
+    float shadow(vec3 origin, vec3 dir) {
+      const float k = 2.0;
+      float t = 100.0*EPSILON;
+      float res = 1.0;
+      for (int i = 0; i < MAX_MARCHING_STEPS; i++) {
+        float h = sceneSDF(origin + t * dir);
+        if (h < EPSILON) {
+          return 0.0;
+        }
+        t += h;
+        res = min(res, k*h/t);
+      }
+      return res;
+    }
+
     vec3 render() {
       vec3 dir = rayDirection(45.0, screenSize, gl_FragCoord.xy);
       vec3 eye = vec3(0.0, 0.0, 8.0);
       float dist = distance(eye, dir, MIN_DIST, MAX_DIST);
 
       if (dist > MAX_DIST - EPSILON) {
+        // Sky
         float d = dot(dir, normalize(vec3(0.0, -1.0, 0.0)));
         d *= 6.0;
         d = d/2.0 + 0.5;
         d = max(0.0, min(1.0, d));
-        return mix(vec3(4.0, 40.0, 100.0), vec3(90.0, 100.0, 100.0), d);
+        return mix(vec3(4.0, 40.0, 100.0), vec3(20.0, 100.0, 100.0), d);
       }
     
-      return vec3(0.0, 0.0, 0.0);
+      // Shade cloud
+      vec3 intersection = eye + dist * dir;
+      vec3 toLight = normalize(LIGHT - intersection);
+      const vec3 LIGHT = vec3(100.0, 100.0, 100.0);
+      const vec3 DARK = vec3(5.0, 8.0, 20.0);
+      return mix(DARK, LIGHT, shadow(intersection, toLight));
     }
 
     // John Hable's tone mapping function, to get each color channel into [0,1]
@@ -134,12 +161,12 @@ const render = regl({
   primitive: 'triangle strip',
 });
 
-let seed = 4;
+let seed = 2;
 
 onFrame = () => {
   render({ seed });
   seed += 0.000005;
-  //requestAnimationFrame(onFrame);
+  requestAnimationFrame(onFrame);
 }
 
 onFrame();
