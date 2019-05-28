@@ -25,6 +25,7 @@ const render = regl({
     const float EPSILON = 0.0001;
     const float WHITE = 200.0;
     const vec3 LIGHT = vec3(-10.0, 10.0, 3.0);
+    const float STEP_SCALE = 0.67;
 
     float jitter(float mixAmount, float offset) {
       float amount = 0.0;
@@ -54,11 +55,13 @@ const render = regl({
     }
 
     float sceneSDF(vec3 samplePoint) {
-      vec3 warped = warp(samplePoint, 3.0);
+      vec3 warped = warp(samplePoint, 1.5);
       float d1 = sphereSDF(warped, vec3(0.5, 0.0, 0.0), 1.0);
       float d2 = sphereSDF(warped, vec3(-0.5, -0.4, 0.2), 0.5);
+      float smoothed = smoothUnion(d1, d2, 0.4);
 
-      return smoothUnion(d1, d2, 0.4);
+      float d3 = sphereSDF(warped, vec3(-0.8, 0.55, 0.2), 0.3);
+      return min(smoothed, d3);
     }
 
     vec3 rayDirection(float fieldOfView, vec2 size, vec2 fragCoord) {
@@ -74,7 +77,7 @@ const render = regl({
         if (dist < EPSILON) {
           return depth;
         }
-        depth += dist;
+        depth += dist*STEP_SCALE;
         if (depth >= end) {
           return end;
         }
@@ -91,7 +94,7 @@ const render = regl({
         if (h < EPSILON) {
           return 0.0;
         }
-        t += h;
+        t += h*STEP_SCALE;
         res = min(res, k*h/t);
       }
       return res;
@@ -161,7 +164,7 @@ const render = regl({
   primitive: 'triangle strip',
 });
 
-let seed = 2;
+let seed = 2.02;
 
 onFrame = () => {
   render({ seed });
